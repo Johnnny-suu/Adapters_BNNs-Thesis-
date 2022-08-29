@@ -1,0 +1,6 @@
+[submodule "BinaryNet"]
+	path = BinaryNet
+	url = https://github.com/itayhubara/BinaryNet.pytorch
+[submodule "pytorch-cifar"]
+	path = pytorch-cifar
+	url = https://github.com/kuangliu/pytorch-cifar
