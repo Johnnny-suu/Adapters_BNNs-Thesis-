@@ -17,11 +17,24 @@ import torch.optim as optim
 
 #For Supervised Training Should help with not having to goddamn run this code all the time just have a loop changing the
 #Hyperparameters
+class WeightClipper(object):
+
+    def __init__(self, frequency=5):
+        self.frequency = frequency
+
+    def __call__(self, module):
+        # filter the variables to get the ones you want
+        if hasattr(module, 'weight'):
+            w = module.weight.data
+            w = w.clamp(-1,1)
+
+
 class Trainer():
-    def __init__(self,model = None,name = 'Model_1',classes = None,seed = None,regime = None):
+    def __init__(self,model = None,name = 'Model_1',classes = None,seed = None,regime = None,binarise = False):
         
         self.name = name
         self.model = model
+        self.binarise = binarise
         
         self.total_time = 0
         self.best_model_accuracy = 0
@@ -89,7 +102,17 @@ class Trainer():
             outputs = self.model(images)
             loss = self.criterion(outputs, labels)
             loss.backward()
-            self.optimizer.step()
+
+            if self.binarise:
+                for p in (self.model.parameters()):
+                    if hasattr(p,'org'):
+                        p.data.copy_(p.org)
+                self.optimizer.step()
+                for p in (self.model.parameters()):
+                    if hasattr(p,'org'):
+                        p.org.copy_(p.data.clamp_(-1,1))
+            else:
+                self.optimizer.step()
             running_loss += loss.item()
         self.scheduler.step()
         
