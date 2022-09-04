@@ -1,2 +1,4 @@
 data
 *.pth
+BinaryNet
+pytorch-cifar
