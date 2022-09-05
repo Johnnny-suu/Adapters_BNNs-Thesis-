@@ -25,16 +25,53 @@ class bottleneck_adapter(nn.Module):
         input = prod(self.shape)
         self.l_in = nn.Linear(input,downsample, bias)
         self.non_lin = getattr(F,nonlinearity)
+        self.bn1 = nn.BatchNorm1d(downsample)
         self.l_out = nn.Linear(downsample,input,bias)
+        self.bn2 = nn.BatchNorm2d(self.shape[0])
+
     def forward(self,x):
         # print(x.shape)
 
         #Turn Shape into 1D Vector
         out = nn.Sequential(nn.Flatten(),self.l_in)(x)
         #Apply Non linearity
+        out = self.bn1(out)
         out = self.non_lin(out)
-
         #Convert shape back to original shape
         out =  nn.Sequential(self.l_out,nn.Unflatten(1,self.shape))(out)
         
-        return F.hardtanh(out+x)
+        return F.hardtanh(self.bn2(out+x))
+
+class conv_adapter(nn.Module):
+    '''
+    No bottle neck
+    '''
+    def __init__(self,in_channels,kernel = 1,stride = 1,padding = 0,bias:bool = False,nonlinearity:str = 'hardtanh'):
+        super().__init__()
+        self.conv1 = nn.Conv2d(in_channels,in_channels,kernel,stride,padding,bias = bias)
+        self.bn1 = nn.BatchNorm2d(in_channels)
+        self.non_lin = getattr(F,nonlinearity)
+        self.bn2 = nn.BatchNorm2d(in_channels)
+    def forward(self,x):
+        
+        out = nn.Sequential(self.bn1,self.conv1)(x)
+
+        out = self.bn2(out+x)
+
+        return self.non_lin(out)
+
+class conv_bottleneck_adapter(nn.Module):
+    def __init__(self,in_channels,down_channels,kernel = 1,stride = 1,padding = 0,bias:bool = False,nonlinearity:str = 'relu'):
+        super().__init__()
+        self.conv1 = nn.Conv2d(in_channels,down_channels,kernel,stride,padding,bias = bias)
+        self.bn1 = nn.BatchNorm2d(in_channels)
+        self.non_lin = getattr(F,nonlinearity)
+        self.deconv1 = nn.ConvTranspose2d(down_channels,in_channels,kernel,stride,padding,bias = bias)
+        self.bn2 = nn.BatchNorm2d(in_channels)
+    def forward(self,x):
+        
+        out = nn.Sequential(self.bn1,self.conv1)(x)
+        out = self.non_lin(out)
+        out = self.deconv1(out)
+        out = self.bn2(out+x)
+        return F.hardtanh(out)

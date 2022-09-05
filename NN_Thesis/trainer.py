@@ -65,17 +65,7 @@ class Trainer():
 
         self.cwd = os.getcwd()
 
-        self.settings = {
-        'start_epoch': self.start_epoch,
-        'lr': self.lr,
-        'batch_size': self.batch_size,
-        'epochs': self.epochs,
-        'epoch_chkpts': self.epoch_chkpts,
-        'device': self.device ,
-        'criterion': self.criterion, 
-        'optimizer': self.optimizer, 
-        'seed': self.seed
-        }
+        
         #Datasets
         self.classes = classes
         
@@ -83,7 +73,12 @@ class Trainer():
         self.saveNet = True
         self.saveData = True
 
-
+    def set_scheduler(self,scheduler = None,**kwargs):
+        if scheduler is None:
+            self.scheduler = optim.lr_scheduler.CosineAnnealingLR(self.optimizer,self.T_max)
+        else:
+             self.scheduler = scheduler(self.optimizer,**kwargs)
+        print(f'Scheduler Set {scheduler.state_dict()}')
     def train(self,trainloader,testloader):
         
         print('start')
@@ -95,17 +90,28 @@ class Trainer():
         self.model.to(device = self.device)
         #Add chkpt saving
         for epoch in range(self.start_epoch,self.epochs):   
-            loss_and_acc =  (self.train_epoch(epoch,trainloader),self.test(testloader))
-            self.epoch_losses.append(loss_and_acc)
+            loss,acc=  (self.train_epoch(epoch,trainloader),self.test(testloader))
+            self.epoch_losses.append((loss,acc))
             #Save at checkpoint
             if epoch in self.epoch_chkpts:
-                self.save(f'chkpt_{epoch}')
+                self.save(f'chkpt_{epoch}',epoch,loss)
 
         if self.saveData:
             self.to_csv(f'{self.name}')
-        print(f'Finished Training \nTotal Time {self.total_time}\n Average Time Per Epoch {(self.total_time)/self.epochs}')
+        print(f'Finished Training: \nTotal Time {self.total_time/3600:2f} hours\n Average Time Per Epoch {(self.total_time)/self.epochs:.2f} seconds')
 
     def print_config(self):
+        self.settings = {
+        'start_epoch': self.start_epoch,
+        'lr': self.lr,
+        'batch_size': self.batch_size,
+        'epochs': self.epochs,
+        'epoch_chkpts': self.epoch_chkpts,
+        'device': self.device ,
+        'criterion': self.criterion, 
+        'optimizer': self.optimizer, 
+        'seed': self.seed
+        }
         for key,value in self.settings.items():
             print(f'{key} : {value}')
 
@@ -138,7 +144,7 @@ class Trainer():
         
         self.total_time +=time.perf_counter()-  time_start
         
-        print(f'epoch: {epoch+1} average loss: {running_loss/len(trainloader):.3f} Epoch Time {self.total_time/3600:.2f} hours')
+        print(f'epoch: {epoch+1} average loss: {running_loss/len(trainloader):.3f} Epoch Time {self.total_time/60:.2f} mins')
         
         
         if self.saveNet:
@@ -211,7 +217,8 @@ class Trainer():
         for c in self.model.named_children():
             if isinstance(c[1],BinarizeConv2d,BinarizeLinear):
                 c[1].weight.data.sign()
-                c[1].bias.data.sign()
+                if hasattr(c[1],'bias'):
+                    c[1].bias.data.sign()
 
         self.save_Best(filename)
         print(f'saved model to {filename}.pth as BNN')
@@ -232,7 +239,7 @@ class Trainer():
         print(chkpt.keys())
         self.optimizer.load_state_dict(chkpt['optimizer_state_dict'])
         self.scheduler.load_state_dict(chkpt['lr_scheduler_state_dict'])
-        self.start_epoch = chkpt.epoch
+        self.start_epoch = chkpt['epoch']
         #Display Status
         for key in chkpt.keys():
             if not(load_model and key == 'model_state_dict'):
@@ -258,8 +265,10 @@ class adapter_Trainer(Trainer):
         self.set_optimizer()
     def set_optimizer(self):
         #Only optimise trainable weights
-        self.optimizer = optim.SGD(filter(lambda p: p.requires_grad, self.model.parameters()), lr=self.lr, momentum=0.9)
+        self.optimizer = optim.SGD(self.model.parameters(), lr=self.lr, momentum=0.9)
     def model_train(self):
         #Only turn train on for adapter layers e.g dropout, bn
         for _,layer in self.model.adapter_dict.items():
             layer.train()
+        self.model.bn3.train()
+        self.model.fc.train()
