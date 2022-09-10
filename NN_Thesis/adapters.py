@@ -1,6 +1,47 @@
 from math import prod
+from turtle import forward
 import torch.nn as nn
 import torch.nn.functional as F
+
+
+class identity_adapter(nn.Module):
+    '''
+    For debugging of trainer method
+    '''
+    def __init__(self) -> None:
+        super().__init__()
+    
+    def forward(self,x):
+        return x
+
+
+class mini_bottleneck_adapter(nn.Module):
+    def __init__(self,input_shape = (8,8),nonlinearity:str = 'relu',bias:bool = True) -> None:
+        super().__init__()
+        
+        self.shape = input_shape
+        input = prod(self.shape)
+        downsample = input//2
+        self.l_in = nn.Linear(input,downsample, bias)
+        self.non_lin = getattr(F,nonlinearity)
+        self.bn1 = nn.BatchNorm1d(downsample)
+        self.l_out = nn.Linear(downsample,input,bias)
+        self.bn2 = nn.BatchNorm2d(1)
+
+    def forward(self,x):
+        mini_x = x[:,0,:].clone() #Clone 8x8
+        #Turn Shape into 1D Vector
+        mini_x = nn.Sequential(nn.Flatten(),self.l_in)(mini_x)
+        #Apply Non linearity
+        mini_x = self.bn1(mini_x)
+        mini_x = self.non_lin(mini_x)
+        #Convert shape back to original shape
+        mini_x =  nn.Sequential(self.l_out,nn.Unflatten(1,self.shape))(mini_x)
+
+        x[:,0,:] += mini_x
+
+        return x
+        
 
 
 class bottleneck_adapter(nn.Module):
