@@ -254,7 +254,6 @@ class Trainer():
             for i,data in enumerate(self.epoch_losses):
                 loss,acc = data
                 line = f'{i},{loss},{acc}\n'
-                print(line)
                 f.write(line)
         print(f'Data Saved to {name}.csv')
 

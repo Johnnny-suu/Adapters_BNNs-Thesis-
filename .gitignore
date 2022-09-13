@@ -2,3 +2,4 @@ data
 *.pth
 BinaryNet
 pytorch-cifar
+results
