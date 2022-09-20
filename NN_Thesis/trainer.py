@@ -250,7 +250,7 @@ class Trainer():
         if name is None:
             name = self.name + '_data'
         with open(f'{name}.csv','w') as f:
-            f.write(f'epochs,loss,accuracy')    
+            f.write(f'epochs,loss,accuracy\n')    
             for i,data in enumerate(self.epoch_losses):
                 loss,acc = data
                 line = f'{i},{loss},{acc}\n'

@@ -32,8 +32,8 @@ class SimpleCNN(nn.Module):
 
 class resnet18_adapt(ResNet_cifar10):
 
-    def __init__(self,state_dict = None,freeze_pre_weights = True):
-        super().__init__()
+    def __init__(self,num_classes,state_dict = None,freeze_pre_weights = True):
+        super().__init__(num_classes= num_classes)
         if state_dict is not None:
             self.load_state_dict(state_dict)
             if freeze_pre_weights:
@@ -50,6 +50,11 @@ class resnet18_adapt(ResNet_cifar10):
             c.eval()
         for p in self.parameters():
             p.requires_grad = False
+    def unfreeze(self):
+        for c in self.children():
+            c.train()
+        for p in self.parameters():
+            p.requires_grad = True
     def add_adapter(self,after,adapter):
         '''
         Add adapter to a model 'after' a layer:
@@ -89,3 +94,21 @@ class resnet18_adapt(ResNet_cifar10):
         else:
             #Raise if after and adapter are not both list like
             raise TypeError('Please ensure that both "after" and "adapter" are both list like and the same length')
+
+
+def compare_weights(main_model:nn.Module,*models:nn.Module):
+    '''
+    For checking if weight are the same
+    '''
+    for model in models:
+        for name,mod in model.named_children():
+            # print(name)
+            if hasattr(main_model,name):
+                #Compare weights of modules
+                main_mod = getattr(main_model,name)
+                if hasattr(mod,'weight') and hasattr(main_mod,'weight'):
+                    is_same = torch.all(mod.weight == main_mod.weight)
+                    if is_same is False:
+                        print(f'Child Module {name} weights do not match with models')
+            else:
+                print(f'Main model does have child {name}')

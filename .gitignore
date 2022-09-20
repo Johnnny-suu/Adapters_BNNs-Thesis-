@@ -3,3 +3,4 @@ data
 BinaryNet
 pytorch-cifar
 results
+*.csv

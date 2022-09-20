@@ -209,7 +209,7 @@ class ResNet_cifar10(ResNet):
         self.layer4 = lambda x: x
         self.avgpool = nn.AvgPool2d(8)
         self.bn2 = nn.BatchNorm1d(64*self.inflate)
-        self.bn3 = nn.BatchNorm1d(10)
+        self.bn3 = nn.BatchNorm1d(num_classes)
         self.logsoftmax = nn.LogSoftmax(dim=-1)
         self.fc = BinarizeLinear(64*self.inflate, num_classes)
 
