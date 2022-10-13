@@ -116,7 +116,7 @@ class conv_adapter(nn.Module):
         self.bn2 = nn.BatchNorm2d(in_channels)
     def forward(self,x):
         
-        out = (self.bn1,self.conv1)(x)
+        out = nn.Sequential(self.bn1,self.conv1)(x)
 
         out = self.bn2(out+x)
 
@@ -141,3 +141,20 @@ class conv_bottleneck_adapter(nn.Module):
         out = self.deconv1(out)
         out = self.bn2(out+x)
         return F.hardtanh(out)
+
+
+import random
+
+class partial_conv_adapter(conv_adapter):
+    def __init__(self,in_channels:int,internal_channels:int,kernel = 1,stride = 1,padding = 0,bias:bool = False,nonlinearity:str = 'hardtanh'):
+        super().__init__(in_channels,kernel,stride,padding,bias,nonlinearity)
+        self.in_channels = in_channels
+        self.internal_channels = internal_channels
+        if internal_channels > self.in_channels:
+            raise ValueError('number of internal channels must be less than or equal to number of input channels')
+
+        self.ToSample = self.policy()
+
+    def policy(self):
+        return random.sample( list(range(self.in_channels)), self.internal_channels )
+        

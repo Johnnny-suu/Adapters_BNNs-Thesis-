@@ -173,8 +173,11 @@ class ResNet_imagenet(ResNet):
         self.tanh = nn.Hardtanh(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.layer1 = self._make_layer(block, 64, layers[0])
+        
         self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
+        
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
+        
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
         self.avgpool = nn.AvgPool2d(7)
         self.fc = BinarizeLinear(512 * block.expansion, num_classes)
@@ -204,8 +207,11 @@ class ResNet_cifar10(ResNet):
         self.tanh1 = nn.Hardtanh(inplace=True)
         self.tanh2 = nn.Hardtanh(inplace=True)
         self.layer1 = self._make_layer(block, 16*self.inflate, n)
+        #(80,,,)
         self.layer2 = self._make_layer(block, 32*self.inflate, n, stride=2)
+        #(160,,,)
         self.layer3 = self._make_layer(block, 64*self.inflate, n, stride=2,do_bntan=False)
+        #(320,,,)
         self.layer4 = lambda x: x
         self.avgpool = nn.AvgPool2d(8)
         self.bn2 = nn.BatchNorm1d(64*self.inflate)
