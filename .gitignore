@@ -4,3 +4,4 @@ BinaryNet
 pytorch-cifar
 results
 *.csv
+wandb*

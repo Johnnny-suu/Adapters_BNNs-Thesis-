@@ -67,8 +67,11 @@ class resnet18_adapt(ResNet_cifar10):
             after: type(str,list,tuple) if "after" is str of layer name to add adapter afterwards or list/tuple of n layers to add n adapters to after
             adapter: nn.Module layer to add to the model. 
         '''
+
         #Attach adapter to model using NN.sequentia
         def addAdapter(layer,adapter_):
+
+            #Check if layer to append after actually exists
             if hasattr(self,layer):
                 model_layer = getattr(self,layer)
                 #Add to ModuleDict:

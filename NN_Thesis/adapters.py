@@ -3,8 +3,22 @@ from turtle import forward
 import torch.nn as nn
 import torch.nn.functional as F
 
+class adapterModule(nn.Module):
+    '''
+    Parent Class for adapters. Useful for adding general adapter functions
+    Inherits from nn.Module so difference between is the 2 is small
+    '''
+    def __init__(self) -> None:
+        super().__init__()
+    def init_weight_zeros(self):
+        #Set Parameters Weights to zero
+        # Equivalent Run of not having Adapters inserted into network
+        for p in self.parameters():
+            nn.init.zeros_(p)
 
-class identity_adapter(nn.Module):
+
+
+class identity_adapter(adapterModule):
     '''
     For debugging of trainer method
     '''
@@ -15,7 +29,7 @@ class identity_adapter(nn.Module):
         return x
 
 
-class mini_bottleneck_adapter(nn.Module):
+class mini_bottleneck_adapter(adapterModule):
     def __init__(self,input_shape,num_adapters,downsample,nonlinearity:str = 'relu',bias:bool = True) -> None:
         super().__init__()
         #= (320,8,8)
@@ -42,7 +56,7 @@ class mini_bottleneck_adapter(nn.Module):
         return x
         
 
-class autoencoder_adapter(nn.Module):
+class autoencoder_adapter(adapterModule):
 
     def __init__(self,input,downsample,nonlinearity = 'relu',bias:bool = True) -> None:
         super().__init__()
@@ -63,7 +77,7 @@ class autoencoder_adapter(nn.Module):
 
 
 
-class bottleneck_adapter(nn.Module):
+class bottleneck_adapter(adapterModule):
     '''
     adapted from: http://proceedings.mlr.press/v97/houlsby19a/houlsby19a.pdf and modified for CNN  
      Takes in the input shape for 1 tensor e.g for a Tensor shape of (N,C,H,W) set input shape to (C,H,W)
@@ -104,7 +118,7 @@ class bottleneck_adapter(nn.Module):
         
         return F.hardtanh(self.bn2(out+x))
 
-class conv_adapter(nn.Module):
+class conv_adapter(adapterModule):
     '''
     No bottle neck
     '''
@@ -122,7 +136,7 @@ class conv_adapter(nn.Module):
 
         return self.non_lin(out)
 
-class conv_bottleneck_adapter(nn.Module):
+class conv_bottleneck_adapter(adapterModule):
     '''
     More general convulutional adapter. Can either downsample channels only, img dimensions only or both choices
     '''
@@ -158,3 +172,9 @@ class partial_conv_adapter(conv_adapter):
     def policy(self):
         return random.sample( list(range(self.in_channels)), self.internal_channels )
         
+if __name__ == '__main__':
+    conv = conv_adapter(2)
+    conv.init_weight_zeros()
+
+    for p in conv.parameters():
+        print(p)

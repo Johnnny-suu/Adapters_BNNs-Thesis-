@@ -5,7 +5,7 @@ from torch.utils.data import Dataset
 from torchvision import datasets
 from torchvision.transforms import ToTensor
 import matplotlib.pyplot as plt
-
+import os
 import pickle
 def unpickle(file):
     with open(file,'rb') as f:
@@ -29,6 +29,29 @@ class cifar_n_dataset(Dataset):
         if self.transform:
             img = self.transform(img)
         return img,label
+
+
+
+class cifar_100_split(Dataset):
+    def __init__(self,root,train = True,transform = None):
+        self.transform = transform
+
+        f = 'train' if train else 'test'
+        self.data = unpickle(os.path.join(root,f))
+        self.data,self.label =  list(zip(*[ (torch.from_numpy(img).to(dtype = torch.float32),label) for img,label in self.data]))
+        self.data = torch.stack(self.data)/255
+        self.classes = unpickle(os.path.join(root,'classes'))
+    def __len__(self):
+        return len(self.data)
+    def __getitem__(self, idx):
+        img,label = self.data[idx],self.label[idx]
+        if self.transform:
+            img = self.transform(img)
+        return img,label
+
+
+
+
 
 from torch.utils.data import DataLoader
 
