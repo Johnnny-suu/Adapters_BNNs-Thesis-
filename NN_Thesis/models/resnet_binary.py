@@ -1,7 +1,7 @@
 import torch.nn as nn
 import torchvision.transforms as transforms
 import math
-from .binarized_modules import  BinarizeLinear,BinarizeConv2d
+from .binarized_modules import  BinarizeLinear,BinarizeConv2d,BinarizeConv2d_binet
 
 
 '''
@@ -14,11 +14,15 @@ The repo is based on https://github.com/eladhoffer/convNet.pytorch
 
 '''
 
-__all__ = ['resnet_binary','ResNet_cifar10']
+__all__ = ['resnet_binary','ResNet_cifar10','ResNet_imagenet','BasicBlock','ResNet_Cifar100']
 
-def Binaryconv3x3(in_planes, out_planes, stride=1):
+def Binaryconv3x3(in_planes, out_planes, stride=1,scale = False):
     "3x3 convolution with padding"
-    return BinarizeConv2d(in_planes, out_planes, kernel_size=3, stride=stride,
+    if scale:
+        return BinarizeConv2d_binet(in_planes, out_planes, kernel_size=3, stride=stride,
+                     padding=1, bias=False)
+    else:
+        return BinarizeConv2d(in_planes, out_planes, kernel_size=3, stride=stride,
                      padding=1, bias=False)
 
 def conv3x3(in_planes, out_planes, stride=1):
@@ -35,14 +39,13 @@ def init_model(model):
             m.weight.data.fill_(1)
             m.bias.data.zero_()
 
-
 class BasicBlock(nn.Module):
     expansion = 1
 
     def __init__(self, inplanes, planes, stride=1, downsample=None,do_bntan=True):
         super(BasicBlock, self).__init__()
 
-        self.conv1 = Binaryconv3x3(inplanes, planes, stride)
+        self.conv1 = Binaryconv3x3(inplanes, planes, stride,scale = False)
         self.bn1 = nn.BatchNorm2d(planes)
         self.tanh1 = nn.Hardtanh(inplace=True)
         self.conv2 = Binaryconv3x3(planes, planes)
@@ -55,27 +58,65 @@ class BasicBlock(nn.Module):
 
     def forward(self, x):
 
-        residual = x.clone()
+        residual = x
 
         out = self.conv1(x)
         out = self.bn1(out)
         out = self.tanh1(out)
-
+        
+        
         out = self.conv2(out)
-
+        out = self.bn2(out)
+        out = self.tanh2(out)
 
         if self.downsample is not None:
-            if residual.data.max()>1:
-                import pdb; pdb.set_trace()
             residual = self.downsample(residual)
-
         out += residual
-        if self.do_bntan:
-            out = self.bn2(out)
-            out = self.tanh2(out)
 
         return out
 
+
+class BasicBlock2(nn.Module):
+    expansion = 1
+
+    def __init__(self, inplanes, planes, stride=1, downsample=None,do_bntan=True):
+        super(BasicBlock2, self).__init__()
+
+        self.conv1 = Binaryconv3x3(inplanes, planes, stride,scale = True)
+        self.bn1 = nn.BatchNorm2d(planes)
+        self.tanh1 = nn.Hardtanh(inplace=True)
+        # self.conv2 = Binaryconv3x3(planes, planes)
+        # self.tanh2 = nn.Hardtanh(inplace=True)
+        # self.bn2 = nn.BatchNorm2d(planes)
+
+        self.downsample = downsample
+        self.do_bntan=do_bntan
+        self.stride = stride
+
+    def forward(self, x):
+
+        residual = x
+
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.tanh1(out)
+        
+        if self.downsample is not None:
+            residual = self.downsample(residual)
+
+        out += residual
+
+        # residual = out.clone()
+        
+        # out = self.conv2(out)
+        # out = self.bn2(out)
+        # out = self.tanh2(out)
+
+        # if self.downsample is not None:
+        #     residual = self.downsample(residual)
+        # out += residual
+
+        return out
 
 class Bottleneck(nn.Module):
     expansion = 4
@@ -146,8 +187,11 @@ class ResNet(nn.Module):
         x = self.bn1(x)
         x = self.tanh1(x)
         x = self.layer1(x)
+        #out : N,80,32,32
         x = self.layer2(x)
+        # out N,160,16,16
         x = self.layer3(x)
+        # out N,320,8,8
         x = self.layer4(x)
 
         x = self.avgpool(x)
@@ -170,7 +214,11 @@ class ResNet_imagenet(ResNet):
         self.conv1 = BinarizeConv2d(3, 64, kernel_size=7, stride=2, padding=3,
                                bias=False)
         self.bn1 = nn.BatchNorm2d(64)
-        self.tanh = nn.Hardtanh(inplace=True)
+        self.bn2 = nn.BatchNorm1d(512)
+        self.bn3 = nn.BatchNorm1d(num_classes)
+        self.tanh1 = nn.Hardtanh(inplace=True)
+        self.tanh2 = nn.Hardtanh(inplace=True)
+        self.logsoftmax = lambda x : x
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.layer1 = self._make_layer(block, 64, layers[0])
         
@@ -190,6 +238,45 @@ class ResNet_imagenet(ResNet):
             60: {'lr': 1e-3, 'weight_decay': 0},
             90: {'lr': 1e-4}
         }
+
+class ResNet_Cifar100(ResNet):
+
+    def __init__(self, num_classes=100,
+                 block=BasicBlock, layers=[2, 2, 2, 2],inflate = 1):
+        super(ResNet_Cifar100, self).__init__()
+        self.inflate = inflate
+        self.inplanes = 64*self.inflate
+        self.conv1 = BinarizeConv2d(3, 64*self.inflate, kernel_size=3, stride=1, padding=1,
+                               bias=False)
+        self.bn1 = nn.BatchNorm2d(64*self.inflate)
+        self.bn2 = nn.BatchNorm1d(512*self.inflate)
+        self.bn3 = nn.BatchNorm1d(num_classes)
+        self.tanh1 = nn.Hardtanh(inplace=True)
+        self.tanh2 = nn.Hardtanh(inplace=True)
+        self.logsoftmax = lambda x : x
+        self.maxpool = lambda x : x
+        self.layer1 = self._make_layer(block, 64*self.inflate, layers[0],stride = 1)
+        
+        self.layer2 = self._make_layer(block, 128*self.inflate, layers[1], stride=2)
+        
+        self.layer3 = self._make_layer(block, 256*self.inflate, layers[2], stride=2)
+        
+        self.layer4 = self._make_layer(block, 512*self.inflate, layers[3], stride=2)
+        self.avgpool = nn.AdaptiveAvgPool2d(1)
+        self.fc = BinarizeLinear(512*self.inflate, num_classes)
+
+        init_model(self)
+        self.regime = {
+            0: {'optimizer': 'SGD', 'lr': 1e-1,
+                'weight_decay': 1e-4, 'momentum': 0.9},
+            30: {'lr': 1e-2},
+            60: {'lr': 1e-3, 'weight_decay': 0},
+            90: {'lr': 1e-4}
+        }
+
+
+
+
 
 
 class ResNet_cifar10(ResNet):

@@ -19,6 +19,7 @@ import torch.optim as optim
 from NN_Thesis.models.binarized_modules import BinarizeConv2d, BinarizeLinear
 import wandb
 
+from . import prune
 
 #For Supervised Training Should help with not having to goddamn run this code all the time just have a loop changing the
 #Hyperparameters
@@ -39,7 +40,7 @@ class Trainer():
         
 
         self.project_name = project_name
-
+        self.prune_strat = None
         self.name = model_name        
         self.run_name = f'{self.name}'
         self.start_wall_time = datetime.today().strftime("%Y-%m-%d %H-%M-%S")
@@ -70,10 +71,16 @@ class Trainer():
         self.optimizer = optim.SGD(self.model.parameters(), lr=self.lr, momentum=0.9)
         self.T_max = self.epochs//10
 
-        self.scheduler = optim.lr_scheduler.CosineAnnealingLR(self.optimizer,self.T_max)
+        self.scheduler = None
         
         self.seed = seed
         self.model.to(device = self.device)
+
+        # Pruning Values:
+        self.amount = None
+        self.pruning_rounds = None
+        self.model_to_prune = None
+
         #A dictionary where key is the epoch and value are the settings to apply
         
         self.epoch_chkpts = epoch_chkpts
@@ -92,31 +99,49 @@ class Trainer():
 
     def set_scheduler(self,scheduler = None,**kwargs):
         if scheduler is None:
-            self.T_max = self.epochs//10
-            self.scheduler = optim.lr_scheduler.CosineAnnealingLR(self.optimizer,self.T_max)
-            print('Using Default Cosine Annealing:')
+            self.scheduler = None
+            print('No lr scheduler')
         else:
             self.scheduler = scheduler(self.optimizer,**kwargs)
             print(f'Scheduler Set {self.scheduler.state_dict()}')
     
-    def set_optimizer(self,optimizer = None,**kwargs):
+    def set_optimizer(self,optimizer = None,params = None,**kwargs):
+        if params is None:
+            params = self.model.parameters()
+        
+        
         if optimizer is None:
-            self.optimizer = optim.SGD(self.model.parameters(), lr=self.lr, momentum=0.9)
+            self.optimizer = optim.SGD(params, lr=self.lr, momentum=0.9)
             print('Using Default (SGD) Optimizer')
         else:
-            self.optimizer = optimizer(self.model.parameters(),**kwargs) 
+            self.optimizer = optimizer(params,**kwargs) 
             print(f'Optimizer Set to New: {self.optimizer.state_dict()}')
     
-    def train(self,trainloader,testloader,**wandb_kwargs):
+    def train(self,trainloader,testloader,prune_strat = None,**wandb_kwargs):
         # self.set_scheduler()
         self.batch_size = trainloader.batch_size
         config = self.hyperparameters()
+        self.prune_strat = prune_strat
 
+        #Wandb Init stuff
         wandb.init(project= self.project_name,config=config,tags = self.tags,**wandb_kwargs)
         wandb.watch(self.model,log_freq = 250)
         wandb.run.name = self.run_name
         table = wandb.Table(data = self.wandbTableData,columns= ['Param Dtype','Number of Elements'])
         
+        #Pruning Init:
+        
+        if prune_strat is not None:
+            if prune_strat == 'oneshot':
+                #Prune at half total epochs then continue training
+                to_prune = self.epochs//2
+                prune_net = True
+                
+            elif prune_strat == 'iter':
+                prune_round = 0
+                to_prune = self.epochs//self.pruning_rounds
+
+
         print('start')
         self.print_config()
 
@@ -148,6 +173,10 @@ class Trainer():
 
             #Train and Test Results
             train_loss,(test_loss,test_acc)=  (self.train_epoch(epoch,trainloader),self.test(testloader))
+            if self.scheduler is not None:
+                self.scheduler.step()
+
+
             self.epoch_losses.append( (train_loss,test_loss,test_acc))
 
             self.epoch_time = time.perf_counter() - self.epoch_time
@@ -161,6 +190,23 @@ class Trainer():
             
             wandb.log(self.metrics(epoch,train_loss,test_loss,test_acc))
             
+            if prune_strat is not None:
+                if (epoch % to_prune) ==0 and epoch > 1:
+                    if prune_strat == 'oneshot':
+                        if prune_net:
+                            prune.Lottery_Ticket_OneShot(self.model_to_prune,self.amount)
+                            prune_net = False
+                            print(f'Pruned {self.amount*100}% of weights at epoch {epoch}')
+
+                    elif prune_strat == 'iter':
+                        prune.Lottery_Ticket_Iter_Prune(prune_round,self.model_to_prune,self.amount,self.pruning_rounds)
+                        prune_round += 1
+                    else:
+                        raise ValueError(f'unknown prune strat {prune_strat} please use oneshot or iter')
+
+
+
+
         if self.saveData:
             self.to_csv(f'{self.name}')
         print(f'Finished Training: \nTotal Time {self.total_time/3600:2f} hours\n Average Time Per Epoch {(self.total_time)/self.epochs:.2f} seconds')
@@ -191,12 +237,17 @@ class Trainer():
     def metrics(self,epoch,train_loss,test_loss,test_acc):
         if test_acc > self.best_acc:
             self.best_acc = test_acc
+        
+        if self.scheduler is not None:
+            current_lr = self.scheduler.get_last_lr()[0]
+        else:
+            current_lr = self.lr
         return {
             'epoch': epoch,
             'training_loss':train_loss,
             'test_loss':test_loss,
             'test_accuracy':test_acc,
-            'lr':self.scheduler.get_last_lr()[0],
+            'lr': current_lr,
             'epoch time (s)': self.epoch_time,
             'Current Best Acc': self.best_acc
             }
@@ -240,7 +291,7 @@ class Trainer():
             else:
                 self.optimizer.step()
             running_loss += loss.item()
-        self.scheduler.step()
+        
         
         
         
@@ -309,11 +360,18 @@ class Trainer():
     def save(self,filename,epoch,loss):
         #To save network and current optimiser state
         PATH = os.path.join( self.cwd,f'{self.name}_{filename}.pth')
+
+
+        if self.scheduler is None:
+            scheduler_state = None
+        else:
+            scheduler_state = self.scheduler.state_dict()
+
         torch.save({
             'epoch': epoch,
             'model_state_dict': self.model.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
-            'lr_scheduler_state_dict':self.scheduler.state_dict(),
+            'lr_scheduler_state_dict':scheduler_state,
             'loss': loss,
             }, PATH)
         # print(f'{PATH} saved!')
@@ -329,10 +387,11 @@ class Trainer():
         print(f'saved model to {filename}.pth as BNN')
     def save_Best(self,filename):
         #Function to only save Neural network
-
+        
         PATH = os.path.join( self.cwd,f'{self.name}_{filename}.pth')
         torch.save(self.model.state_dict(), PATH)
         print(f'{filename}.pth saved!')
+
 
     def load(self,filename,load_model = False,map_location = None):
         chkpt = torch.load(filename,map_location)
@@ -368,10 +427,6 @@ class Trainer():
 class adapter_Trainer(Trainer):
     def __init__(self,*args,**kwargs):
         super().__init__(*args,**kwargs)
-        self.set_optimizer()
-    def set_optimizer(self):
-        #Only optimise trainable weights
-        self.optimizer = optim.SGD(self.model.parameters(), lr=self.lr, momentum=0.9)
     def model_train(self):
         #Only turn train on for adapter layers e.g dropout, bn
         for _,layer in self.model.adapter_dict.items():
